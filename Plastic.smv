@@ -1,0 +1,274 @@
+-- SMV-specification of the cyber-physical system: control program + plant.
+
+---------------- Timer ------------------
+MODULE Timer
+VAR
+    I : boolean; -- Input  (Control Software Output)
+    Q : boolean; -- Output (Control Software Input)
+
+ASSIGN
+    INIT(!I & !Q)
+    TRANS( !Q &  next(Q) ->  I )
+    TRANS(  Q & !next(Q) -> !I )
+    TRANS(  Q &  next(Q) ->  I )
+
+FAIRNESS (I -> Q) --// Условие честного срабатывания таймера.
+
+---------------- main ------------------
+MODULE main
+VAR
+    -- Environment/Inputs
+    -- Buttons:
+    PBStart : boolean;    -- Push Button "Start".
+    PBStop  : boolean;    -- Push Button "Stop".
+    PBCompl : boolean;    -- Push Button "Complete".
+    PBConvr : boolean;    -- Push Button "Conveyor".
+
+    -- Imaginary Sensors:
+    ifs : boolean;    -- Imaginary Form Sensor.
+
+    -- Sensors:
+    fs1 : boolean;    -- Form Sensor 1.
+    fs2 : boolean;    -- Form Sensor 2.
+    OLS : boolean;    -- Limit Sensor "Open".
+    CLS : boolean;    -- Limit Sensor "Closed".
+    WS0 : boolean;    -- Nonzero Weight Sensor.
+    WS1 : boolean;    -- Preset Weight Sensor.
+    UTS : boolean;    -- Up Temperature Sensor.
+    LTS : boolean;    -- Low Temperature Sensor.
+    WTS : boolean;    -- Work Temperature Sensor.
+
+    -- Timers:
+    fTmr : Timer;   -- Feed Timer - таймер ожидания подачи.
+    HTmr : Timer;   -- Heater Timer - таймер ожидания нагрева.
+    CTmr : Timer;   -- Conveyor Timer - таймер ожидания конвейера (формы).
+    MTmr : Timer;   -- Melting Timer - таймер ожидания плавления.
+
+    -- Control Software
+    -- Variables:
+    SysOn : boolean;    -- System is On.
+    Compl : boolean;    -- Completion command.
+    fErr  : boolean;    -- Feed Error.
+    CErr  : boolean;    -- Form Error.
+    HErr  : boolean;    -- Heater Error.
+    Disch : boolean;    -- Discharge.
+    Mlted : boolean;    -- Melted.
+    Mltng : boolean;    -- Melting.
+    fin   : boolean;    -- Final of the plastic molding process.
+
+    -- Actuators:
+    Heater : boolean;   -- Turn on the Heater.
+    fMech  : boolean;   -- Turn on the Feed Mechanism.
+    Convr  : boolean;   -- Turn on the Conveyor.
+    LwSpd  : boolean;   -- Double the Speed of the Conveyor.
+    Valve  : boolean;   -- Open the Valve.
+    OpnLid : boolean;   -- Open the Lid.
+    ClsLid : boolean;   -- Close the Lid.
+
+-- Environment/Inputs
+-- Buttons:
+INIT ( !PBStart & !PBStop & !PBCompl & !PBConvr )
+
+-- Sensors:
+
+INIT ( !fs1 )
+TRANS( !fs1 &  next(fs1) ->  !fs2 & !next(fs2) & !ifs & !next(ifs) & Convr )
+TRANS(  fs1 & !next(fs1) ->  !fs2 & !next(fs2) & !ifs &  next(ifs) & Convr )
+
+INIT ( !ifs )
+TRANS( !ifs &  next(ifs) ->  !fs2 & !next(fs2) &  fs1 & !next(fs1) & Convr )
+TRANS(  ifs & !next(ifs) ->  !fs2 &  next(fs2) & !fs1 & !next(fs1) & Convr )
+
+INIT ( !fs2 )
+TRANS( !fs2 &  next(fs2) ->   ifs & !next(ifs) & !fs1 & !next(fs1) & Convr )
+TRANS(  fs2 & !next(fs2) ->  !ifs & !next(ifs) & !fs1 & !next(fs1) & Convr )
+
+INIT ( OLS )
+TRANS( !OLS &  next(OLS) ->  !CLS & !next(CLS) & OpnLid )
+TRANS(  OLS & !next(OLS) ->  !CLS & !next(CLS) & ClsLid )
+
+INIT ( !CLS )
+TRANS( !CLS &  next(CLS) ->  !OLS & !next(OLS) & ClsLid )
+TRANS(  CLS & !next(CLS) ->  !OLS & !next(OLS) & OpnLid )
+
+INIT ( !WS0 )
+TRANS( !WS0 &  next(WS0) ->  !WS1 & !next(WS1) & fMech & !CLS )
+TRANS(  WS0 & !next(WS0) ->  !WS1 & !next(WS1) & Valve &  WTS )
+
+INIT ( !WS1 )
+TRANS( !WS1 &  next(WS1) ->  WS0 & next(WS0) & fMech & !CLS )
+TRANS(  WS1 & !next(WS1) ->  WS0 & next(WS0) & Valve &  WTS )
+
+INIT ( !UTS )
+TRANS( !UTS &  next(UTS) ->  WTS & next(WTS) & LTS & next(LTS) & Heater )
+TRANS(  UTS & !next(UTS) ->  WTS & next(WTS) & LTS & next(LTS)          )
+
+INIT ( !LTS )
+TRANS( !LTS &  next(LTS) ->  WTS & next(WTS) & !UTS & !next(UTS) & Heater )
+TRANS(  LTS & !next(LTS) ->  WTS & next(WTS) & !UTS & !next(UTS)          )
+
+INIT ( !WTS )
+TRANS( !WTS &  next(WTS) ->  !LTS & !next(LTS) & !UTS & !next(UTS) & Heater )
+TRANS(  WTS & !next(WTS) ->  !LTS & !next(LTS) & !UTS & !next(UTS)          )
+
+-- Control Software
+-- Variables:
+INIT ( !SysOn )
+TRANS( !SysOn &  next(SysOn) ->  (next(PBStart) & !next(fin)) )
+TRANS( !SysOn & !next(SysOn) -> !(next(PBStart) & !next(fin)) )
+TRANS(  SysOn & !next(SysOn) ->  next(fin) )
+TRANS(  SysOn &  next(SysOn) -> !next(fin) )
+
+INIT ( !Compl )
+TRANS( !Compl &  next(Compl) ->  (next(SysOn) & next(PBCompl)) )
+TRANS( !Compl & !next(Compl) -> !(next(SysOn) & next(PBCompl)) )
+TRANS(  Compl & !next(Compl) -> !next(SysOn) )
+TRANS(  Compl &  next(Compl) ->  next(SysOn) )
+
+INIT ( !fErr )
+TRANS( !fErr &  next(fErr) ->  (next(fTmr.Q) & !next(WS1)) )
+TRANS( !fErr & !next(fErr) -> !(next(fTmr.Q) & !next(WS1)) )
+TRANS(  fErr & !next(fErr) ->  next(PBStop) )
+TRANS(  fErr &  next(fErr) -> !next(PBStop) )
+
+INIT ( !CErr )
+TRANS( !CErr &  next(CErr) ->  (next(CTmr.Q) & !next(fs2)) )
+TRANS( !CErr & !next(CErr) -> !(next(CTmr.Q) & !next(fs2)) )
+TRANS(  CErr & !next(CErr) ->  next(PBStop) )
+TRANS(  CErr &  next(CErr) -> !next(PBStop) )
+
+INIT ( !HErr )
+TRANS( !HErr &  next(HErr) ->  (!next(WTS) & (next(HTmr.Q) | Heater & WTS)) )
+TRANS( !HErr & !next(HErr) -> !(!next(WTS) & (next(HTmr.Q) | Heater & WTS)) )
+TRANS(  HErr & !next(HErr) ->  next(PBStop) )
+TRANS(  HErr &  next(HErr) -> !next(PBStop) )
+
+INIT ( !Disch )
+TRANS( !Disch &  next(Disch) ->  (next(OLS) & next(WS1)) )
+TRANS( !Disch & !next(Disch) -> !(next(OLS) & next(WS1)) )
+TRANS(  Disch & !next(Disch) ->  (!next(fs2) & !next(WS1)) )
+TRANS(  Disch &  next(Disch) -> !(!next(fs2) & !next(WS1)) )
+
+INIT ( !Mlted )
+TRANS( !Mlted &  next(Mlted) ->  (next(MTmr.Q) & next(WTS) & next(WS0) & next(CLS)) )
+TRANS( !Mlted & !next(Mlted) -> !(next(MTmr.Q) & next(WTS) & next(WS0) & next(CLS)) )
+TRANS(  Mlted & !next(Mlted) ->  (!next(WTS) | !next(CLS) | !next(WS0)) )
+TRANS(  Mlted &  next(Mlted) -> !(!next(WTS) | !next(CLS) | !next(WS0)) )
+
+INIT ( !Mltng )
+TRANS( next(Mltng) <-> next(SysOn) & next(CLS) & next(Disch) & next(WS0) )
+
+INIT ( !fin )
+TRANS( next(fin) <-> (Compl & next(OLS) & !next(WS0) | next(fErr) | next(HErr) | next(CErr) | next(PBStop) | next(PBConvr)) )
+
+-- Impact_On_Timers:
+TRANS( next(fTmr.I) <-> next(fMech)  & !next(WS1) )
+TRANS( next(HTmr.I) <-> next(Heater) & !next(WTS) )
+TRANS( next(CTmr.I) <-> next(Convr)  & !next(fs2) & next(SysOn) )
+TRANS( next(MTmr.I) <-> next(Mltng)  &  next(WTS) & next(WS0) & next(CLS) )
+
+-- Actuators:
+INIT ( !Heater )
+TRANS( !Heater &  next(Heater) ->  (next(SysOn) & !next(LTS)) )
+TRANS( !Heater & !next(Heater) -> !(next(SysOn) & !next(LTS)) )
+TRANS(  Heater & !next(Heater) ->  (!next(SysOn) | next(UTS)) )
+TRANS(  Heater &  next(Heater) -> !(!next(SysOn) | next(UTS)) )
+
+INIT ( !fMech )
+TRANS( next(fMech) <-> next(SysOn) & !next(Disch) & next(OLS) & !next(WS1) )
+
+INIT ( !Convr )
+TRANS( next(Convr) <-> (next(SysOn) & (next(fs2) & next(Disch) & !next(WS0) | !next(fs2)) | next(PBConvr)) )
+
+INIT ( !Valve )
+TRANS( next(Valve) <-> next(SysOn) & next(Disch) & next(Mlted) & next(fs2) )
+
+INIT ( !LwSpd )
+TRANS( !LwSpd &  next(LwSpd) ->  next(fs1) )
+TRANS( !LwSpd & !next(LwSpd) -> !next(fs1) )
+TRANS(  LwSpd & !next(LwSpd) ->  next(fs2) )
+TRANS(  LwSpd &  next(LwSpd) -> !next(fs2) )
+
+INIT ( !OpnLid )
+TRANS( next(OpnLid) <-> next(SysOn) & !next(OLS) & !next(Disch) )
+
+INIT ( !ClsLid )
+TRANS( next(ClsLid) <-> next(SysOn) & !next(CLS) & next(Disch) )
+
+-----------------------------------------------------------------------------
+COMPASSION (Convr, !fs2)
+COMPASSION (OpnLid, !ClsLid ->  OLS)
+COMPASSION (ClsLid, !OpnLid ->  CLS)
+COMPASSION (Valve & WTS, !(fMech & !CLS) ->  !WS0)
+FAIRNESS   (!Heater ->  !WTS)
+-----------------------------------------------------------------------------
+
+LTLSPEC NAME Prp1 := G(SysOn -> !(PBStop | PBConvr | fErr | CErr | HErr) );
+
+LTLSPEC NAME Prp2 := G(!SysOn -> !(Valve | fMech | Heater | OpnLid | ClsLid | Compl) & (Convr -> PBConvr));
+
+LTLSPEC NAME Prp3 := G( fMech  -> !Valve  & !OpnLid & !ClsLid ) &
+                     G( Valve  -> !fMech  & !OpnLid & !ClsLid ) &
+                     G( OpnLid -> !fMech  & !Valve  & !ClsLid ) &
+                     G( ClsLid -> !fMech  & !Valve  & !OpnLid );
+
+LTLSPEC NAME Prp4 := G!(Convr & Valve);
+
+LTLSPEC NAME Prp5 := G( !(OpnLid | ClsLid) -> (CLS | OLS | !SysOn) );
+
+LTLSPEC NAME Prp6 := G( WS1 -> !fMech );
+
+LTLSPEC NAME Prp7 := G( Valve -> (fs2 & !Convr) );
+
+LTLSPEC NAME Prp8 := G( (fErr & !X(fErr) | HErr & !X(HErr) | CErr & !X(CErr)) -> X(PBStop) & !X(SysOn) );
+
+LTLSPEC NAME Prp9 := G( !Valve & fs2 & WS0 -> !((fs2 & WS0) U (Convr & !PBConvr & fs2 & WS0)) );
+
+LTLSPEC NAME Prp10 := G( Valve & X(!Valve) & X(fs2) & !X(WS0) -> !X(fs2 U (Valve & fs2)) );
+
+LTLSPEC NAME Prp11 := G( Valve & X(!Valve) & X(fs2) & !X(WS0) -> !X(!Convr U Valve) );
+
+LTLSPEC NAME Prp12 := G( !Valve & !WS1 & OLS -> !(!WS1 U (Valve & !WS1)) );
+
+LTLSPEC NAME Prp13 := G( !fs2 & X(fs2) ->  LwSpd );
+
+LTLSPEC NAME Prp14 := G( !fs1 & X(fs1) -> !LwSpd );
+
+LTLSPEC NAME Prp15 := G( OpnLid & !X(OpnLid) & X(SysOn) -> !fMech & X(fMech) ) &
+                      G( fMech & !X(fMech) & X(SysOn) -> !ClsLid & X(ClsLid) ) &
+                      G( Valve & !X(Valve) & X(SysOn) -> !Convr & X(Convr) );
+
+LTLSPEC NAME Prp16 := G(fTmr.Q -> X(!fTmr.Q)) &
+                      G(HTmr.Q -> X(!HTmr.Q)) &
+                      G(CTmr.Q -> X(!CTmr.Q));
+
+LTLSPEC NAME Prp17 := G(Convr & !fs2 & X(fs2) -> X(!PBConvr -> !Convr));
+
+LTLSPEC NAME Prp18 := G( !fs2 & X(fs2) & X(SysOn) -> !X((SysOn & !Valve) U (SysOn & Convr)) );
+
+LTLSPEC NAME Prp19 := G( Valve & !X(Valve) & X(SysOn) -> !X((SysOn & !fMech) U (SysOn & Valve)) );
+
+LTLSPEC NAME Prp20 := G( ClsLid & !X(ClsLid) & X(SysOn) -> X(!OpnLid U (Valve | !SysOn)) ) &
+                      G( Valve & !X(Valve) & X(SysOn) -> X(!Valve U (OpnLid | !SysOn)) );
+
+LTLSPEC NAME Prp21 := G( !OpnLid -> F(OpnLid | !SysOn) ) & G( !ClsLid -> F(ClsLid | !SysOn) );
+
+LTLSPEC NAME Prp22 := G( !fMech -> F(fMech | !SysOn) ) & G( !Valve -> F(Valve | !SysOn) ) &
+                      G( !Convr -> F(Convr | !SysOn) ) & G( !Heater -> F(Heater | !SysOn) );
+
+LTLSPEC NAME Prp23 := G(fMech -> F(!fMech)) & G(Valve -> F(!Valve)) & G(OpnLid -> F(!OpnLid)) &
+                      G(ClsLid -> F(!ClsLid)) & G( Convr -> F(!Convr | PBConvr) ) & G( Heater -> (F(!Heater) | G(!UTS)) );
+
+LTLSPEC NAME Prp24 := G( Compl -> F(!Compl) );
+
+LTLSPEC NAME Prp25 := G( MTmr.Q -> F(!MTmr.Q) );
+
+LTLSPEC NAME Prp26 := G( Convr -> (Convr U (fs2 | !SysOn)) );
+
+LTLSPEC NAME Prp27 := G( fMech -> (fMech U (WS1 | !SysOn)) );
+
+LTLSPEC NAME Prp28 := G( Valve -> (Valve U (!WS0 | !SysOn)) );
+
+
+-- reachable states: 16150 (2^13.9792) out of 2.74878e+011 (2^38)
+-- elapse: 252 seconds (4.2 min)
